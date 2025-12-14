@@ -11,6 +11,12 @@ on:
         required: true
         default: 'v1.0.0'
 
+# Ensure the workflow has proper permissions
+permissions:
+  contents: write    # Required to create releases and upload assets
+  actions: read      # Required to read workflow metadata
+  packages: write    # Optional: if you want to publish packages
+
 env:
   DOTNET_VERSION: '8.0.x'
   PROJECT_PATH: './DemoWebsite'
@@ -113,7 +119,7 @@ jobs:
         echo "CHANGELOG_FILE=changelog.txt" >> $GITHUB_OUTPUT
     
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.version.outputs.VERSION }}
         name: Release ${{ steps.version.outputs.VERSION }}
@@ -124,6 +130,31 @@ jobs:
           ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.zip
           ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.tar.gz
         generate_release_notes: true
+        fail_on_unmatched_files: true
+        append_body: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Create Release (Fallback with GitHub CLI)
+      if: failure()
+      run: |
+        echo "⚠️ Standard release creation failed, trying with GitHub CLI..."
+        
+        # Check if release already exists
+        if gh release view ${{ steps.version.outputs.VERSION }} > /dev/null 2>&1; then
+          echo "Release already exists, deleting and recreating..."
+          gh release delete ${{ steps.version.outputs.VERSION }} --yes || true
+        fi
+        
+        # Create release with GitHub CLI
+        gh release create ${{ steps.version.outputs.VERSION }} \
+          ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.zip \
+          ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.tar.gz \
+          --title "Release ${{ steps.version.outputs.VERSION }}" \
+          --notes-file ${{ steps.changelog.outputs.CHANGELOG_FILE }} \
+          ${{ contains(steps.version.outputs.VERSION, 'alpha') && '--prerelease' || '' }} \
+          ${{ contains(steps.version.outputs.VERSION, 'beta') && '--prerelease' || '' }} \
+          ${{ contains(steps.version.outputs.VERSION, 'rc') && '--prerelease' || '' }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     

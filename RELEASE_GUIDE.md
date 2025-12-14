@@ -95,7 +95,25 @@ The workflow includes a `deploy` job that runs after successful releases. You ca
 - No additional secrets are required for basic functionality
 - For custom deployments, add secrets in **Settings > Secrets and variables > Actions**
 
-## 📈 Monitoring
+## � Testing Your Setup
+
+### Test Permissions (Before Creating Releases)
+1. **Run the permission test workflow**:
+   - Go to **Actions** tab
+   - Select **"Test Permissions"**
+   - Click **"Run workflow"**
+   - This will verify if your GitHub token has the necessary permissions
+
+2. **Check the results**:
+   - If successful: Your setup is ready for releases
+   - If failed: Follow the troubleshooting steps above
+
+### Test Build (Without Release)
+1. **Push to main branch** to trigger CI workflow
+2. **Check build logs** in Actions tab
+3. **Verify artifacts** are generated correctly
+
+## �📈 Monitoring
 
 - **View workflow runs** in the Actions tab
 - **Download artifacts** from completed runs
@@ -106,18 +124,39 @@ The workflow includes a `deploy` job that runs after successful releases. You ca
 
 ### Common Issues:
 
-1. **Workflow doesn't trigger on tag**:
+1. **GitHub Release fails with 403 error** (Most Common):
+   - **Root Cause**: GitHub token lacks permissions to create releases
+   - **Solutions**:
+     
+     **Option A: Update Repository Settings (Recommended)**
+     1. Go to **Settings** → **Actions** → **General**
+     2. Scroll to **Workflow permissions**
+     3. Select **"Read and write permissions"**
+     4. Check **"Allow GitHub Actions to create and approve pull requests"**
+     5. Click **Save**
+     
+     **Option B: Use Personal Access Token**
+     1. Go to **Settings** → **Developer settings** → **Personal access tokens** → **Tokens (classic)**
+     2. Generate new token with `repo` scope (full repository access)
+     3. Copy the token
+     4. In your repository: **Settings** → **Secrets and variables** → **Actions**
+     5. Add new secret: Name = `PERSONAL_TOKEN`, Value = your token
+     6. Update the workflow to use `GITHUB_TOKEN: ${{ secrets.PERSONAL_TOKEN }}`
+
+2. **Workflow doesn't trigger on tag**:
    - Ensure the tag follows the pattern `v*.*.*`
    - Check that the tag was pushed: `git push origin --tags`
+   - Verify the workflow file is in the default branch
 
-2. **Build fails**:
+3. **Build fails**:
    - Check the project path in `PROJECT_PATH` environment variable
    - Ensure all dependencies are properly configured
    - Review the workflow logs in the Actions tab
 
-3. **Release creation fails**:
+4. **Release creation fails with other errors**:
    - Verify repository permissions
-   - Check that `GITHUB_TOKEN` has necessary permissions
+   - Check that the tag doesn't already exist
+   - Ensure you have admin or write access to the repository
 
 ### Getting Help:
 - Check the workflow logs in the GitHub Actions tab
