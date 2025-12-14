@@ -1,0 +1,163 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0, v2.1.3, etc.
+  workflow_dispatch:  # Allows manual triggering
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  PROJECT_PATH: './DemoWebsite'
+  ARTIFACT_NAME: 'DemoWebsite'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for proper versioning
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Get version from tag or input
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "push" ]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION=${{ github.event.inputs.version }}
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "VERSION_NUMBER=${VERSION#v}" >> $GITHUB_OUTPUT
+    
+    - name: Restore dependencies
+      run: dotnet restore ${{ env.PROJECT_PATH }}
+    
+    - name: Build application
+      run: dotnet build ${{ env.PROJECT_PATH }} --configuration Release --no-restore
+    
+    - name: Run tests (if any exist)
+      run: |
+        if find . -name "*.Tests.csproj" -o -name "*Test*.csproj" | grep -q .; then
+          dotnet test --configuration Release --no-build --verbosity normal
+        else
+          echo "No test projects found, skipping tests"
+        fi
+    
+    - name: Publish application
+      run: |
+        dotnet publish ${{ env.PROJECT_PATH }} \
+          --configuration Release \
+          --output ./publish \
+          --no-build \
+          --verbosity normal \
+          /p:Version=${{ steps.version.outputs.VERSION_NUMBER }}
+    
+    - name: Create deployment package
+      run: |
+        cd publish
+        zip -r ../${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.zip .
+        cd ..
+        
+        # Create additional artifacts
+        tar -czf ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.tar.gz -C publish .
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        if [ "${{ github.event_name }}" = "push" ]; then
+          # Get commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s (%an)" $PREV_TAG..HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%an)" --max-count=10)
+          fi
+        else
+          CHANGELOG="Manual release triggered for version ${{ steps.version.outputs.VERSION }}"
+        fi
+        
+        # Write changelog to file to handle multiline
+        cat << 'EOF' > changelog.txt
+        ## 🚀 What's New in ${{ steps.version.outputs.VERSION }}
+        
+        $CHANGELOG
+        
+        ## 📦 Assets
+        - **${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.zip** - Windows/Cross-platform deployment package
+        - **${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.tar.gz** - Linux/Unix deployment package
+        
+        ## 🔧 Installation
+        1. Download the appropriate package for your platform
+        2. Extract the contents to your desired location
+        3. Configure your web server to serve the application
+        4. Update configuration files as needed
+        
+        ## 📋 System Requirements
+        - .NET 8.0 Runtime or later
+        - Compatible web server (IIS, Apache, Nginx, etc.)
+        EOF
+        
+        echo "CHANGELOG_FILE=changelog.txt" >> $GITHUB_OUTPUT
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        name: Release ${{ steps.version.outputs.VERSION }}
+        body_path: ${{ steps.changelog.outputs.CHANGELOG_FILE }}
+        draft: false
+        prerelease: ${{ contains(steps.version.outputs.VERSION, 'alpha') || contains(steps.version.outputs.VERSION, 'beta') || contains(steps.version.outputs.VERSION, 'rc') }}
+        files: |
+          ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.zip
+          ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.tar.gz
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}
+        path: |
+          ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.zip
+          ${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.VERSION }}.tar.gz
+        retention-days: 30
+
+  # Optional: Deploy to staging/production after successful release
+  deploy:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    if: success() && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')
+    environment: production  # Configure this environment in your repo settings
+    
+    steps:
+    - name: Download release artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ env.ARTIFACT_NAME }}-${{ needs.build-and-release.outputs.version }}
+    
+    - name: Deploy notification
+      run: |
+        echo "🚀 Deployment step - Add your deployment commands here"
+        echo "Available files:"
+        ls -la
+        
+        # Example deployment commands:
+        # - Deploy to Azure App Service
+        # - Deploy to AWS
+        # - Deploy to your own servers
+        # - Update container registries
+        # - Notify stakeholders
