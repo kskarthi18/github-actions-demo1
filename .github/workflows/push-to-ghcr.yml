@@ -26,7 +26,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t ghcr.io/${{ github.repository_owner }}/demo-website:latest .
+          docker build -f DemoWebsite/Dockerfile -t ghcr.io/${{ github.repository_owner }}/demo-website:latest .
 
       - name: Push Docker image
         run: |
