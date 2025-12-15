@@ -1,1 +1,1 @@
-Test release
+Test GHCR workflow
